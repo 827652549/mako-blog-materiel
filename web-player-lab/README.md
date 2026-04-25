@@ -6,14 +6,16 @@
 
 | 目录 | 主题 | 配套文章 |
 |------|------|----------|
-| [01-mp4-moov-detection](web-player-lab/01-mp4-moov-detection/) | MP4 box 结构解析 + Chrome 请求行为模拟 | MP4 与 `<video>`：浏览器的播放行为，已经悄悄发生了变化 |
+| [01-mp4-moov-detection](01-mp4-moov-detection/) | `<video>` 基础用法 + MP4 box 结构（moov/mdat 位置对 Fast Start 的影响） | MP4 与 `<video>`：浏览器的播放行为，已经悄悄发生了变化 |
 
 ## 使用方式
 
 克隆仓库后，直接用浏览器打开对应目录下的 `index.html` 即可。所有文件处理均在本地完成，无需网络请求。
 
+> **注意**：本仓库使用 Git LFS 管理 MP4 文件，克隆前请先安装 `git-lfs` 并执行 `git lfs install`，否则视频文件将无法正常加载。
+
 ```bash
-git clone https://github.com/your-username/web-player-lab.git
+git clone https://github.com/827652549/mako-blog-materiel.git
 open web-player-lab/01-mp4-moov-detection/index.html
 ```
 
