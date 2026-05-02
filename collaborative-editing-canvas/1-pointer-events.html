@@ -131,6 +131,39 @@
     transition: transform 0.1s ease-out, opacity 0.15s;
   }
 
+  /* 开关 */
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .toggle {
+    position: relative;
+    width: 44px;
+    height: 26px;
+    flex-shrink: 0;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .toggle-track {
+    position: absolute;
+    inset: 0;
+    border-radius: 13px;
+    background: rgba(255,255,255,0.15);
+    transition: background 0.2s;
+    cursor: pointer;
+  }
+  .toggle input:checked + .toggle-track { background: var(--highlight); }
+  .toggle-track::after {
+    content: '';
+    position: absolute;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: #fff;
+    top: 3px; left: 3px;
+    transition: transform 0.2s;
+  }
+  .toggle input:checked + .toggle-track::after { transform: translateX(18px); }
+
   /* iPad 横屏适配 */
   @media (min-width: 768px) {
     body { flex-direction: row; }
@@ -196,6 +229,20 @@
     <div class="bar-wrap"><div class="bar-fill twist-bar" id="bar-twist" style="width:50%"></div></div>
     <span class="sub">0° ~ 359°（弧度）</span>
   </div>
+
+  <!-- getCoalescedEvents 开关 -->
+  <div class="prop full">
+    <div class="toggle-row">
+      <span class="label">合并事件 getCoalescedEvents</span>
+      <label class="toggle">
+        <input type="checkbox" id="toggle-coalesced" checked>
+        <span class="toggle-track"></span>
+      </label>
+    </div>
+    <span class="value" id="val-coalesced">—</span>
+    <span class="sub">每帧实际返回的中间点数量</span>
+  </div>
+
 </div>
 
 <script>
@@ -216,6 +263,8 @@
     const barTiltY = document.getElementById('bar-tilty');
     const barTwist = document.getElementById('bar-twist');
     const dot = document.getElementById('contact-dot');
+    const toggleCoalesced = document.getElementById('toggle-coalesced');
+    const elCoalesced = document.getElementById('val-coalesced');
 
     function resize() {
       const w = pad.clientWidth;
@@ -268,15 +317,10 @@
       barTwist.style.width = (e.twist / 359 * 100).toFixed(1) + '%';
     }
 
-    // 画轨迹
     function drawTrail(x, y, pressure, tiltX, tiltY, twist, pointerType, contactW, contactH) {
-      let r;
-      if (pointerType === 'touch') {
-        // touch 用接触面积的平均直径的 1/4 作为笔触半径
-        r = Math.max((contactW + contactH) / 2 / 4, 4);
-      } else {
-        r = 2 + pressure * 14;
-      }
+      const r = pointerType === 'touch'
+        ? Math.max((contactW + contactH) / 2 / 4, 4)
+        : 2 + pressure * 14;
       const hue = ((twist || 0) % 360);
       const alpha = pointerType === 'touch' ? 0.55 : (0.4 + pressure * 0.5);
 
@@ -285,16 +329,13 @@
       ctx.fillStyle = `hsla(${hue}, 80%, 60%, ${alpha})`;
       ctx.fill();
 
-      // 根据 tilt 画方向线（touch 的 tiltX/tiltY 恒为 0，不会进入此分支）
+      // tilt 方向线（touch 恒为 0 不会进入）
       if (tiltX !== 0 || tiltY !== 0) {
         const len = 18 + pressure * 22;
         const angle = Math.atan2(tiltY, tiltX);
-        const ex = x + Math.cos(angle) * len;
-        const ey = y + Math.sin(angle) * len;
-
         ctx.beginPath();
         ctx.moveTo(x, y);
-        ctx.lineTo(ex, ey);
+        ctx.lineTo(x + Math.cos(angle) * len, y + Math.sin(angle) * len);
         ctx.strokeStyle = `hsla(${(hue + 180) % 360}, 60%, 70%, 0.5)`;
         ctx.lineWidth = 1 + pressure * 2;
         ctx.stroke();
@@ -315,14 +356,17 @@
 
     pad.addEventListener('pointermove', function (e) {
       if (e.buttons === 0 && e.pointerType !== 'touch') return; // mouse 需要按住
-      const pos = getPos(e);
-      drawTrail(pos.x, pos.y, e.pressure, e.tiltX, e.tiltY, e.twist, e.pointerType, e.width, e.height);
+      const events = (toggleCoalesced.checked && e.getCoalescedEvents) ? e.getCoalescedEvents() : [e];
+      elCoalesced.textContent = events.length;
+      for (const ce of events) {
+        const pos = getPos(ce);
+        drawTrail(pos.x, pos.y, ce.pressure, ce.tiltX, ce.tiltY, ce.twist, ce.pointerType, ce.width, ce.height);
+      }
       update(e);
     });
 
     pad.addEventListener('pointerup', function () {
       pad.classList.remove('active');
-      // 不清零，保留最后读数方便对比
     });
 
     pad.addEventListener('pointerleave', function () {
