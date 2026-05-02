@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Pointer Events 可视化</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --card: #16213e;
+    --accent: #0f3460;
+    --text: #e0e0e0;
+    --highlight: #e94560;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* 顶部触控区 */
+  #pad {
+    flex: 1;
+    min-height: 300px;
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    position: relative;
+    overflow: hidden;
+    cursor: crosshair;
+  }
+  #pad .hint {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: rgba(255,255,255,0.35);
+    pointer-events: none;
+    transition: opacity 0.4s;
+  }
+  #pad.active .hint { opacity: 0; }
+  #pad canvas {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  /* 数据面板 */
+  #panel {
+    background: var(--card);
+    padding: 20px 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  .prop {
+    background: var(--accent);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .prop.full { grid-column: 1 / -1; }
+
+  .prop .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(255,255,255,0.5);
+  }
+  .prop .value {
+    font-size: 28px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    font-family: 'SF Mono', 'JetBrains Mono', 'Menlo', monospace;
+  }
+  .prop .sub {
+    font-size: 11px;
+    color: rgba(255,255,255,0.35);
+  }
+
+  /* 进度条 */
+  .bar-wrap {
+    height: 6px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.08s linear, background 0.3s;
+  }
+  .bar-fill.pressure-bar { background: var(--highlight); }
+  .bar-fill.tiltx-bar { background: #4ecdc4; }
+  .bar-fill.tilty-bar { background: #ffe66d; }
+  .bar-fill.twist-bar { background: #a855f7; }
+
+  /* 类型标签 */
+  .type-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .type-mouse { background: #4ecdc4; color: #1a1a2e; }
+  .type-touch { background: #ffe66d; color: #1a1a2e; }
+  .type-pen   { background: var(--highlight); color: #fff; }
+
+  /* 接触面积指示器 */
+  #contact-viz {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  #contact-dot {
+    width: 40px; height: 40px;
+    background: radial-gradient(circle, rgba(233,69,96,0.8), rgba(233,69,96,0.1));
+    border-radius: 50%;
+    transition: transform 0.1s ease-out, opacity 0.15s;
+  }
+
+  /* iPad 横屏适配 */
+  @media (min-width: 768px) {
+    body { flex-direction: row; }
+    #pad { flex: 1; min-width: 0; }
+    #panel {
+      width: 340px;
+      flex-shrink: 0;
+      overflow-y: auto;
+      max-height: 100dvh;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div id="pad">
+  <div class="hint">用 Apple Pencil / 手指 / 鼠标 在这里滑动 ✦</div>
+  <canvas id="trail"></canvas>
+</div>
+
+<div id="panel">
+  <!-- 类型 -->
+  <div class="prop full">
+    <span class="label">输入源 pointerType</span>
+    <span class="value" id="val-type">—</span>
+  </div>
+
+  <!-- 压感 -->
+  <div class="prop">
+    <span class="label">压感 pressure</span>
+    <span class="value" id="val-pressure">—</span>
+    <div class="bar-wrap"><div class="bar-fill pressure-bar" id="bar-pressure" style="width:0%"></div></div>
+    <span class="sub">0.0 ~ 1.0 · 鼠标固定 0.5</span>
+  </div>
+
+  <!-- 笔宽/高 -->
+  <div class="prop">
+    <span class="label">接触面积 width / height</span>
+    <span class="value" id="val-size">—</span>
+    <div id="contact-viz"><div id="contact-dot"></div><span class="sub">手指更粗，笔尖更细</span></div>
+  </div>
+
+  <!-- tiltX -->
+  <div class="prop">
+    <span class="label">左右倾斜 tiltX</span>
+    <span class="value" id="val-tiltx">—</span>
+    <div class="bar-wrap"><div class="bar-fill tiltx-bar" id="bar-tiltx" style="width:50%"></div></div>
+    <span class="sub">-90° ~ 90°</span>
+  </div>
+
+  <!-- tiltY -->
+  <div class="prop">
+    <span class="label">前后倾斜 tiltY</span>
+    <span class="value" id="val-tilty">—</span>
+    <div class="bar-wrap"><div class="bar-fill tilty-bar" id="bar-tilty" style="width:50%"></div></div>
+    <span class="sub">-90° ~ 90°</span>
+  </div>
+
+  <!-- twist -->
+  <div class="prop full">
+    <span class="label">笔身旋转 twist</span>
+    <span class="value" id="val-twist">—</span>
+    <div class="bar-wrap"><div class="bar-fill twist-bar" id="bar-twist" style="width:50%"></div></div>
+    <span class="sub">0° ~ 359°（弧度）</span>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const pad = document.getElementById('pad');
+    const trail = document.getElementById('trail');
+    const ctx = trail.getContext('2d');
+
+    // DOM refs
+    const elType = document.getElementById('val-type');
+    const elPressure = document.getElementById('val-pressure');
+    const elSize = document.getElementById('val-size');
+    const elTiltX = document.getElementById('val-tiltx');
+    const elTiltY = document.getElementById('val-tilty');
+    const elTwist = document.getElementById('val-twist');
+    const barPressure = document.getElementById('bar-pressure');
+    const barTiltX = document.getElementById('bar-tiltx');
+    const barTiltY = document.getElementById('bar-tilty');
+    const barTwist = document.getElementById('bar-twist');
+    const dot = document.getElementById('contact-dot');
+
+    function resize() {
+      const w = pad.clientWidth;
+      const h = pad.clientHeight;
+      trail.width = w * devicePixelRatio;
+      trail.height = h * devicePixelRatio;
+      trail.style.width = w + 'px';
+      trail.style.height = h + 'px';
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    function update(e) {
+      pad.classList.add('active');
+
+      // pointerType
+      let typeHTML;
+      switch (e.pointerType) {
+        case 'mouse': typeHTML = '<span class="type-badge type-mouse">mouse</span>'; break;
+        case 'touch': typeHTML = '<span class="type-badge type-touch">touch</span>'; break;
+        case 'pen':   typeHTML = '<span class="type-badge type-pen">pen</span>'; break;
+        default:      typeHTML = e.pointerType;
+      }
+      elType.innerHTML = typeHTML;
+
+      // pressure
+      const p = e.pressure;
+      elPressure.textContent = p.toFixed(4);
+      barPressure.style.width = (p * 100).toFixed(1) + '%';
+
+      // width / height
+      elSize.textContent = `${e.width.toFixed(1)} × ${e.height.toFixed(1)}`;
+      const avg = (e.width + e.height) / 2;
+      const scale = Math.min(Math.max(avg / 5, 0.4), 3.0);
+      dot.style.transform = `scale(${scale})`;
+      dot.style.opacity = e.pointerType === 'touch' ? 0.7 : 0.4;
+
+      // tiltX: -90 ~ 90  ->  bar 0% ~ 100%
+      elTiltX.textContent = e.tiltX + '°';
+      barTiltX.style.width = ((e.tiltX + 90) / 180 * 100).toFixed(1) + '%';
+
+      // tiltY: -90 ~ 90  ->  bar 0% ~ 100%
+      elTiltY.textContent = e.tiltY + '°';
+      barTiltY.style.width = ((e.tiltY + 90) / 180 * 100).toFixed(1) + '%';
+
+      // twist: 0 ~ 359
+      elTwist.textContent = e.twist + '°';
+      barTwist.style.width = (e.twist / 359 * 100).toFixed(1) + '%';
+    }
+
+    // 画轨迹
+    function drawTrail(x, y, pressure, tiltX, tiltY, twist, pointerType, contactW, contactH) {
+      let r;
+      if (pointerType === 'touch') {
+        // touch 用接触面积的平均直径的 1/4 作为笔触半径
+        r = Math.max((contactW + contactH) / 2 / 4, 4);
+      } else {
+        r = 2 + pressure * 14;
+      }
+      const hue = ((twist || 0) % 360);
+      const alpha = pointerType === 'touch' ? 0.55 : (0.4 + pressure * 0.5);
+
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${hue}, 80%, 60%, ${alpha})`;
+      ctx.fill();
+
+      // 根据 tilt 画方向线（touch 的 tiltX/tiltY 恒为 0，不会进入此分支）
+      if (tiltX !== 0 || tiltY !== 0) {
+        const len = 18 + pressure * 22;
+        const angle = Math.atan2(tiltY, tiltX);
+        const ex = x + Math.cos(angle) * len;
+        const ey = y + Math.sin(angle) * len;
+
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(ex, ey);
+        ctx.strokeStyle = `hsla(${(hue + 180) % 360}, 60%, 70%, 0.5)`;
+        ctx.lineWidth = 1 + pressure * 2;
+        ctx.stroke();
+      }
+    }
+
+    function getPos(e) {
+      const rect = pad.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    }
+
+    pad.addEventListener('pointerdown', function (e) {
+      resize();
+      const pos = getPos(e);
+      drawTrail(pos.x, pos.y, e.pressure, e.tiltX, e.tiltY, e.twist, e.pointerType, e.width, e.height);
+      update(e);
+    });
+
+    pad.addEventListener('pointermove', function (e) {
+      if (e.buttons === 0 && e.pointerType !== 'touch') return; // mouse 需要按住
+      const pos = getPos(e);
+      drawTrail(pos.x, pos.y, e.pressure, e.tiltX, e.tiltY, e.twist, e.pointerType, e.width, e.height);
+      update(e);
+    });
+
+    pad.addEventListener('pointerup', function () {
+      pad.classList.remove('active');
+      // 不清零，保留最后读数方便对比
+    });
+
+    pad.addEventListener('pointerleave', function () {
+      pad.classList.remove('active');
+    });
+
+    // 阻止默认行为以避免滚动
+    pad.addEventListener('touchstart', function (e) { e.preventDefault(); });
+    pad.addEventListener('touchmove', function (e) { e.preventDefault(); });
+  })();
+</script>
+</body>
+</html>
