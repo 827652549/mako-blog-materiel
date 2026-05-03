@@ -243,6 +243,19 @@
     <span class="sub">每帧实际返回的中间点数量</span>
   </div>
 
+  <!-- getPredictedEvents 开关 -->
+  <div class="prop full">
+    <div class="toggle-row">
+      <span class="label">预测点 getPredictedEvents</span>
+      <label class="toggle">
+        <input type="checkbox" id="toggle-predict">
+        <span class="toggle-track"></span>
+      </label>
+    </div>
+    <span class="value" id="val-predicted">—</span>
+    <span class="sub">淡色显示，下帧真实事件到来后自动抹除</span>
+  </div>
+
 </div>
 
 <script>
@@ -265,6 +278,9 @@
     const dot = document.getElementById('contact-dot');
     const toggleCoalesced = document.getElementById('toggle-coalesced');
     const elCoalesced = document.getElementById('val-coalesced');
+    const togglePredict = document.getElementById('toggle-predict');
+    const elPredicted = document.getElementById('val-predicted');
+    let savedImageData = null;
 
     function resize() {
       const w = pad.clientWidth;
@@ -275,6 +291,7 @@
       trail.style.height = h + 'px';
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.scale(devicePixelRatio, devicePixelRatio);
+      savedImageData = null;
     }
     resize();
     window.addEventListener('resize', resize);
@@ -317,20 +334,22 @@
       barTwist.style.width = (e.twist / 359 * 100).toFixed(1) + '%';
     }
 
-    function drawTrail(x, y, pressure, tiltX, tiltY, twist, pointerType, contactW, contactH) {
+    function drawTrail(x, y, pressure, tiltX, tiltY, twist, pointerType, contactW, contactH, isPredicted) {
       const r = pointerType === 'touch'
         ? Math.max((contactW + contactH) / 2 / 4, 4)
         : 2 + pressure * 14;
       const hue = ((twist || 0) % 360);
-      const alpha = pointerType === 'touch' ? 0.55 : (0.4 + pressure * 0.5);
+      const alpha = isPredicted ? 0.25 : (pointerType === 'touch' ? 0.55 : (0.4 + pressure * 0.5));
+      const sat = isPredicted ? 30 : 80;
+      const light = isPredicted ? 80 : 60;
 
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = `hsla(${hue}, 80%, 60%, ${alpha})`;
+      ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
       ctx.fill();
 
-      // tilt 方向线（touch 恒为 0 不会进入）
-      if (tiltX !== 0 || tiltY !== 0) {
+      // tilt 方向线（预测点 & touch 不画）
+      if (!isPredicted && (tiltX !== 0 || tiltY !== 0)) {
         const len = 18 + pressure * 22;
         const angle = Math.atan2(tiltY, tiltX);
         ctx.beginPath();
@@ -349,27 +368,56 @@
 
     pad.addEventListener('pointerdown', function (e) {
       resize();
+      savedImageData = null;
       const pos = getPos(e);
-      drawTrail(pos.x, pos.y, e.pressure, e.tiltX, e.tiltY, e.twist, e.pointerType, e.width, e.height);
+      drawTrail(pos.x, pos.y, e.pressure, e.tiltX, e.tiltY, e.twist, e.pointerType, e.width, e.height, false);
       update(e);
     });
 
     pad.addEventListener('pointermove', function (e) {
       if (e.buttons === 0 && e.pointerType !== 'touch') return; // mouse 需要按住
+
+      // 抹掉上一帧预测点，恢复到确认状态
+      if (savedImageData) ctx.putImageData(savedImageData, 0, 0);
+
+      // 画真实 coalesced 点
       const events = (toggleCoalesced.checked && e.getCoalescedEvents) ? e.getCoalescedEvents() : [e];
       elCoalesced.textContent = events.length;
       for (const ce of events) {
         const pos = getPos(ce);
-        drawTrail(pos.x, pos.y, ce.pressure, ce.tiltX, ce.tiltY, ce.twist, ce.pointerType, ce.width, ce.height);
+        drawTrail(pos.x, pos.y, ce.pressure, ce.tiltX, ce.tiltY, ce.twist, ce.pointerType, ce.width, ce.height, false);
       }
+
+      // 存档（不含预测点）
+      savedImageData = ctx.getImageData(0, 0, trail.width, trail.height);
+
+      // 叠画预测点
+      if (togglePredict.checked && e.getPredictedEvents) {
+        const predicted = e.getPredictedEvents();
+        elPredicted.textContent = predicted.length;
+        for (const pe of predicted) {
+          const pos = getPos(pe);
+          drawTrail(pos.x, pos.y, pe.pressure, pe.tiltX, pe.tiltY, pe.twist, pe.pointerType, pe.width, pe.height, true);
+        }
+      } else {
+        elPredicted.textContent = '—';
+      }
+
       update(e);
     });
 
+    togglePredict.addEventListener('change', function () {
+      // 关闭开关时立即抹除残留预测点
+      if (!this.checked && savedImageData) ctx.putImageData(savedImageData, 0, 0);
+    });
+
     pad.addEventListener('pointerup', function () {
+      if (savedImageData) { ctx.putImageData(savedImageData, 0, 0); savedImageData = null; }
       pad.classList.remove('active');
     });
 
     pad.addEventListener('pointerleave', function () {
+      if (savedImageData) { ctx.putImageData(savedImageData, 0, 0); savedImageData = null; }
       pad.classList.remove('active');
     });
 
